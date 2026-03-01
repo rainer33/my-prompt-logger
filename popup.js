@@ -1,5 +1,6 @@
 let allPrompts = [];
 let currentId = null;
+let lastRenderedTotal = 0;
 
 // ✅ 초기 로드
 document.addEventListener("DOMContentLoaded", () => {
@@ -26,7 +27,19 @@ function loadPrompts() {
     if (res.success) {
       allPrompts = res.data;
       renderList();
+      loadDebugState();
     }
+  });
+}
+
+function loadDebugState() {
+  chrome.runtime.sendMessage({ action: "GET_DEBUG_STATE" }, (res) => {
+    if (!res?.success) return;
+    const d = res.data;
+    const lastSaved = d.lastSavedAt ? `마지막저장 ${formatDate(d.lastSavedAt)}` : "마지막저장 없음";
+    const lastError = d.lastError ? ` | 오류 ${d.lastError}` : "";
+    document.getElementById("debugBar").textContent =
+      `저장시도 ${d.saveAttempts} / 성공 ${d.saveSuccess} / 실패 ${d.saveFail} / DB ${d.dbCount} | ${lastSaved}${lastError}`;
   });
 }
 
@@ -43,7 +56,7 @@ function renderList() {
     return matchSite && matchSearch;
   });
 
-  document.getElementById("countBar").textContent = `총 ${filtered.length}개`;
+  document.getElementById("countBar").textContent = `표시 ${filtered.length}개 / 전체 ${allPrompts.length}개`;
 
   const list = document.getElementById("list");
 
@@ -67,6 +80,12 @@ function renderList() {
       </div>
     `)
     .join("");
+
+  // 데이터가 갱신되면 최신 항목이 보이도록 상단으로 자동 스크롤
+  if (allPrompts.length !== lastRenderedTotal) {
+    list.scrollTo({ top: 0, behavior: "smooth" });
+    lastRenderedTotal = allPrompts.length;
+  }
 
   // 카드 클릭 → 모달
   list.querySelectorAll(".card").forEach((card) => {
@@ -95,12 +114,12 @@ function openModal(id) {
   currentId = id;
   document.getElementById("modalPrompt").textContent = p.prompt;
   document.getElementById("modalResponse").textContent = p.response;
-  document.getElementById("modalOverlay").style.display = "block";
+  document.getElementById("modalOverlay").classList.add("show");
 }
 
 // ✅ 모달 닫기
 function closeModal() {
-  document.getElementById("modalOverlay").style.display = "none";
+  document.getElementById("modalOverlay").classList.remove("show");
   currentId = null;
 }
 
@@ -112,6 +131,7 @@ function deletePrompt(id) {
       allPrompts = allPrompts.filter((p) => p.id !== id);
       closeModal();
       renderList();
+      loadDebugState();
     }
   });
 }
@@ -123,6 +143,7 @@ function clearAll() {
     if (res.success) {
       allPrompts = [];
       renderList();
+      loadDebugState();
     }
   });
 }
