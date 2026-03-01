@@ -129,7 +129,7 @@ async function openOrFocusPopupWindow() {
         state: "normal",
       });
       return;
-    } catch (error) {
+    } catch (_error) {
       popupWindowId = null;
     }
   }
@@ -177,6 +177,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           .catch(() => {});
 
         console.log("[PromptLogger] 저장 완료, id:", id);
+
+        // popup이 열려 있으면 동기화 트리거용 이벤트 전달
+        chrome.runtime.sendMessage({ action: "PROMPT_SAVED", id }, () => {
+          if (chrome.runtime.lastError) {
+            // popup이 닫혀 있으면 에러가 나지만 무시해도 됨
+          }
+        });
+
         sendResponse({ success: true, id });
       })
       .catch((err) => {

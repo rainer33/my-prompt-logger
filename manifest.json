@@ -9,6 +9,9 @@
     "windows",
     "unlimitedStorage"
   ],
+  "host_permissions": [
+    "https://*.supabase.co/*"
+  ],
   "content_scripts": [
     {
       "matches": [

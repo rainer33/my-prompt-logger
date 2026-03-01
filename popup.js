@@ -2,8 +2,24 @@ let allPrompts = [];
 let currentId = null;
 let lastRenderedTotal = 0;
 
+const SUPABASE_URL = "https://napkejnulxjorjavjnod.supabase.co";
+const SUPABASE_KEY = "sb_publishable_SsBYghF8TF8VoF8riSh3Dw_tBaE8PJj";
+const SUPABASE_TABLE = "prompts";
+const SYNCED_IDS_KEY = "supabaseSyncedIds";
+
+let supabaseClient = null;
+let syncedIds = new Set();
+let syncStats = {
+  attempts: 0,
+  success: 0,
+  fail: 0,
+  lastError: "",
+};
+
 // ✅ 초기 로드
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await initializeSupabase();
+  await loadSyncedIds();
   loadPrompts();
 
   document.getElementById("searchInput").addEventListener("input", renderList);
@@ -19,14 +35,105 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modalOverlay").addEventListener("click", (e) => {
     if (e.target === document.getElementById("modalOverlay")) closeModal();
   });
+
+  // 저장 이벤트 수신 시 즉시 재조회 + 동기화
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.action === "PROMPT_SAVED") {
+      loadPrompts();
+    }
+  });
+
+  // popup이 열려 있는 동안 주기적으로 동기화
+  setInterval(() => {
+    loadPrompts();
+  }, 8000);
 });
+
+async function initializeSupabase() {
+  if (!globalThis.supabase?.createClient) {
+    syncStats.lastError = "Supabase CDN 로드 실패";
+    return;
+  }
+
+  try {
+    const { createClient } = globalThis.supabase;
+    supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+  } catch (error) {
+    syncStats.lastError = error?.message || String(error);
+  }
+}
+
+function loadSyncedIds() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([SYNCED_IDS_KEY], (result) => {
+      const ids = result?.[SYNCED_IDS_KEY] || [];
+      syncedIds = new Set(ids);
+      resolve();
+    });
+  });
+}
+
+function saveSyncedIds() {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [SYNCED_IDS_KEY]: Array.from(syncedIds) }, () => resolve());
+  });
+}
+
+function toSupabaseRow(p) {
+  return {
+    local_id: p.id,
+    site: p.site,
+    url: p.url,
+    prompt: p.prompt,
+    response: p.response,
+    prompt_tokens: p.promptTokens,
+    response_tokens: p.responseTokens,
+    created_at: p.createdAt,
+    tags: p.tags || [],
+    memo: p.memo || "",
+    source: "chrome-extension",
+  };
+}
+
+async function syncOnePrompt(p) {
+  if (!supabaseClient || syncedIds.has(String(p.id))) return;
+
+  syncStats.attempts += 1;
+  const { error } = await supabaseClient
+    .from(SUPABASE_TABLE)
+    .upsert(toSupabaseRow(p), { onConflict: "local_id" });
+
+  if (error) {
+    syncStats.fail += 1;
+    syncStats.lastError = error.message;
+    return;
+  }
+
+  syncStats.success += 1;
+  syncStats.lastError = "";
+  syncedIds.add(String(p.id));
+}
+
+async function migrateAndSyncPrompts() {
+  if (!supabaseClient) return;
+
+  const targets = allPrompts.filter((p) => !syncedIds.has(String(p.id)));
+  if (targets.length === 0) return;
+
+  for (const p of targets) {
+    await syncOnePrompt(p);
+  }
+
+  await saveSyncedIds();
+}
 
 // ✅ 전체 데이터 로드
 function loadPrompts() {
-  chrome.runtime.sendMessage({ action: "GET_ALL_PROMPTS" }, (res) => {
-    if (res.success) {
+  chrome.runtime.sendMessage({ action: "GET_ALL_PROMPTS" }, async (res) => {
+    if (res?.success) {
       allPrompts = res.data;
       renderList();
+      await migrateAndSyncPrompts();
       loadDebugState();
     }
   });
@@ -37,9 +144,10 @@ function loadDebugState() {
     if (!res?.success) return;
     const d = res.data;
     const lastSaved = d.lastSavedAt ? `마지막저장 ${formatDate(d.lastSavedAt)}` : "마지막저장 없음";
-    const lastError = d.lastError ? ` | 오류 ${d.lastError}` : "";
+    const lastError = d.lastError ? ` | 로컬오류 ${d.lastError}` : "";
+    const syncError = syncStats.lastError ? ` | 동기화오류 ${syncStats.lastError}` : "";
     document.getElementById("debugBar").textContent =
-      `저장시도 ${d.saveAttempts} / 성공 ${d.saveSuccess} / 실패 ${d.saveFail} / DB ${d.dbCount} | ${lastSaved}${lastError}`;
+      `저장시도 ${d.saveAttempts} / 성공 ${d.saveSuccess} / 실패 ${d.saveFail} / DB ${d.dbCount} | 동기화시도 ${syncStats.attempts} / 성공 ${syncStats.success} / 실패 ${syncStats.fail} | ${lastSaved}${lastError}${syncError}`;
   });
 }
 
@@ -92,7 +200,7 @@ function renderList() {
     card.addEventListener("click", (e) => {
       // 삭제 버튼 클릭은 모달 안 열기
       if (e.target.classList.contains("btn-delete")) return;
-      const id = parseInt(card.dataset.id);
+      const id = parseInt(card.dataset.id, 10);
       openModal(id);
     });
   });
@@ -101,14 +209,14 @@ function renderList() {
   list.querySelectorAll(".btn-delete").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      deletePrompt(parseInt(btn.dataset.id));
+      deletePrompt(parseInt(btn.dataset.id, 10));
     });
   });
 }
 
 // ✅ 모달 열기
 function openModal(id) {
-  const p = allPrompts.find((p) => p.id === id);
+  const p = allPrompts.find((item) => item.id === id);
   if (!p) return;
 
   currentId = id;
@@ -127,8 +235,10 @@ function closeModal() {
 function deletePrompt(id) {
   if (!confirm("삭제하시겠습니까?")) return;
   chrome.runtime.sendMessage({ action: "DELETE_PROMPT", id }, (res) => {
-    if (res.success) {
+    if (res?.success) {
       allPrompts = allPrompts.filter((p) => p.id !== id);
+      syncedIds.delete(String(id));
+      saveSyncedIds();
       closeModal();
       renderList();
       loadDebugState();
@@ -140,8 +250,10 @@ function deletePrompt(id) {
 function clearAll() {
   if (!confirm("전체 삭제하시겠습니까?")) return;
   chrome.runtime.sendMessage({ action: "CLEAR_ALL" }, (res) => {
-    if (res.success) {
+    if (res?.success) {
       allPrompts = [];
+      syncedIds = new Set();
+      saveSyncedIds();
       renderList();
       loadDebugState();
     }
