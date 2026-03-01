@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "windows",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "alarms"
   ],
   "host_permissions": [
     "https://*.supabase.co/*"
@@ -20,7 +21,9 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*"
       ],
-      "js": ["content.js"]
+      "js": [
+        "content.js"
+      ]
     }
   ],
   "action": {

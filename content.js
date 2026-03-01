@@ -9,6 +9,35 @@ let captureSeq = 0;
 let recentSubmit = {
   at: 0,
 };
+let pendingPromptRetry = null;
+
+function isContextInvalidatedError(message) {
+  return typeof message === "string" && message.includes("Extension context invalidated");
+}
+
+function safeSendMessage(payload, onSuccess) {
+  // 확장 리로드/업데이트 직후 무효 컨텍스트면 즉시 중단
+  if (!chrome?.runtime?.id) return;
+
+  try {
+    chrome.runtime.sendMessage(payload, (res) => {
+      const lastErrorMessage = chrome.runtime?.lastError?.message || "";
+      if (lastErrorMessage) {
+        if (!isContextInvalidatedError(lastErrorMessage)) {
+          console.error("[PromptLogger] 메시지 실패:", lastErrorMessage);
+        }
+        return;
+      }
+
+      if (onSuccess) onSuccess(res);
+    });
+  } catch (error) {
+    const message = error?.message || String(error);
+    if (!isContextInvalidatedError(message)) {
+      console.error("[PromptLogger] 메시지 예외:", message);
+    }
+  }
+}
 
 // 현재 사이트 감지
 function getSite() {
@@ -74,9 +103,18 @@ function getAssistantNodes() {
   ]);
 }
 
-function startCaptureFromSubmit() {
+function startCaptureFromSubmit(reason = "submit") {
   const promptText = getPromptText() || getLatestText(getUserNodes());
-  if (!promptText) return;
+  if (!promptText) {
+    if (pendingPromptRetry) {
+      clearTimeout(pendingPromptRetry);
+    }
+    pendingPromptRetry = setTimeout(() => {
+      pendingPromptRetry = null;
+      startCaptureFromSubmit("retry");
+    }, 200);
+    return;
+  }
 
   // 동일 이벤트(클릭 + submit + Enter) 중복 저장 방지
   const now = Date.now();
@@ -97,6 +135,12 @@ function startCaptureFromSubmit() {
     assistantLastTextAtStart: getLatestText(assistantNodes),
   };
   isWaitingResponse = true;
+  safeSendMessage({
+    action: "CAPTURE_ATTEMPT",
+    site: activeCapture.site,
+    reason,
+    promptLen: promptText.length,
+  });
 
   console.log("[PromptLogger] 프롬프트 감지:", promptText);
   observeResponse();
@@ -112,19 +156,20 @@ function isSendButtonTarget(target) {
   if (!target || !target.closest) return false;
   return Boolean(
     target.closest('[data-testid="send-button"]') ||
+      target.closest('[data-testid*="composer-send"]') ||
       target.closest('button[data-testid*="send"]') ||
+      target.closest('button[type="submit"]') ||
       target.closest('button[aria-label*="Send"]') ||
-      target.closest('button[aria-label*="전송"]')
+      target.closest('button[aria-label*="전송"]') ||
+      target.closest('button[aria-label*="submit"]')
   );
 }
 
 function isComposerTarget(target) {
-  if (!target || !target.matches) return false;
-  return (
-    target.matches("#prompt-textarea") ||
-    target.matches("textarea") ||
-    target.matches('[contenteditable="true"]')
-  );
+  if (!target) return false;
+  if (target.matches && (target.matches("#prompt-textarea") || target.matches("textarea"))) return true;
+  if (target.closest && target.closest('[contenteditable="true"]')) return true;
+  return false;
 }
 
 function observeSubmit() {
@@ -232,7 +277,7 @@ function finalizeCapture() {
   console.log("[PromptLogger] 응답 완료, 저장 시작");
 
   // background.js에 저장 요청
-  chrome.runtime.sendMessage(
+  safeSendMessage(
     {
       action: "SAVE_PROMPT",
       data: {
@@ -243,10 +288,6 @@ function finalizeCapture() {
       },
     },
     (res) => {
-      if (chrome.runtime.lastError) {
-        console.error("[PromptLogger] 저장 메시지 실패:", chrome.runtime.lastError.message);
-        return;
-      }
       if (!res?.success) {
         console.error("[PromptLogger] 저장 실패:", res?.error || "unknown error");
       }
@@ -255,4 +296,9 @@ function finalizeCapture() {
 }
 
 // ✅ 시작
+safeSendMessage({
+  action: "CONTENT_SCRIPT_READY",
+  site: getSite(),
+  url: location.href,
+});
 observeSubmit();
