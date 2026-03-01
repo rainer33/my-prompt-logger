@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Prompt Logger",
+  "version": "1.0",
+  "description": "AI 프롬프트와 응답을 자동으로 저장합니다",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Prompt Logger"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

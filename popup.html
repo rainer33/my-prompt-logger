@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prompt Logger</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 600px;
+      min-height: 400px;
+      max-height: 600px;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 13px;
+      background: #f9f9f9;
+      color: #222;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 헤더 */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+
+    .header h1 {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* 필터 바 */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .filter-bar input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .filter-bar input:focus {
+      border-color: #888;
+    }
+
+    .filter-bar select {
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+      background: #fff;
+    }
+
+    /* 카운트 */
+    .count-bar {
+      padding: 6px 16px;
+      font-size: 11px;
+      color: #888;
+      background: #f9f9f9;
+      border-bottom: 1px solid #eee;
+    }
+
+    /* 리스트 */
+    .list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .empty {
+      text-align: center;
+      color: #aaa;
+      margin-top: 60px;
+      font-size: 13px;
+    }
+
+    /* 카드 */
+    .card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      transition: box-shadow 0.15s;
+    }
+
+    .card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .site-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+      text-transform: uppercase;
+    }
+
+    .site-badge.chatgpt { background: #e8f5e9; color: #2e7d32; }
+    .site-badge.claude  { background: #fff3e0; color: #e65100; }
+    .site-badge.gemini  { background: #e3f2fd; color: #1565c0; }
+
+    .card-date {
+      font-size: 11px;
+      color: #aaa;
+    }
+
+    .card-prompt {
+      font-size: 12px;
+      font-weight: 500;
+      color: #222;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .card-response {
+      font-size: 11px;
+      color: #777;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    /* 버튼 */
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .btn-delete {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .btn-delete:hover { background: #fecaca; }
+
+    .btn-export {
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+
+    .btn-export:hover { background: #bae6fd; }
+
+    .btn-clear {
+      background: #fee2e2;
+      color: #b91c1c;
+      font-size: 11px;
+    }
+
+    /* 상세 모달 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 100;
+    }
+
+    .modal {
+      background: #fff;
+      border-radius: 10px;
+      padding: 16px;
+      margin: 20px;
+      max-height: 560px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .modal h2 {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    .modal-text {
+      font-size: 12px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn-close {
+      background: #f0f0f0;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 헤더 -->
+  <div class="header">
+    <h1>📋 Prompt Logger</h1>
+    <div class="header-actions">
+      <button class="btn-export" id="btnExport">엑셀 다운로드</button>
+      <button class="btn-clear" id="btnClear">전체 삭제</button>
+    </div>
+  </div>
+
+  <!-- 필터 -->
+  <div class="filter-bar">
+    <input type="text" id="searchInput" placeholder="프롬프트 검색..." />
+    <select id="siteFilter">
+      <option value="all">전체 사이트</option>
+      <option value="chatgpt">ChatGPT</option>
+      <option value="claude">Claude</option>
+      <option value="gemini">Gemini</option>
+    </select>
+  </div>
+
+  <!-- 카운트 -->
+  <div class="count-bar" id="countBar">불러오는 중...</div>
+
+  <!-- 리스트 -->
+  <div class="list" id="list"></div>
+
+  <!-- 상세 모달 -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div>
+        <h2>🙋 프롬프트</h2>
+        <div class="modal-text" id="modalPrompt"></div>
+      </div>
+      <div>
+        <h2>🤖 응답</h2>
+        <div class="modal-text" id="modalResponse"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-close" id="btnClose">닫기</button>
+        <button class="btn-delete" id="btnModalDelete">삭제</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
